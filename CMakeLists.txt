@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.3.2)
-project(COAL_Semester_Project C)
+project(RISCV_Project C)
 
 set(CMAKE_C_STANDARD 11)
 
