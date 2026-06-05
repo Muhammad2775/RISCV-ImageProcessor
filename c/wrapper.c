@@ -185,7 +185,8 @@ static int run_blur(const char* input_path, const char* output_path, int width, 
     return 0;
 }
 
-/*	C++ auto handles the cli args but even though this is C11 it doesnt do that. Besides that there are numerous stupid pointer and representation nuances in Unix 
+/*	
+	C++ auto handles the cli args but even though this is C11 it doesnt do that. Besides that there are numerous stupid pointer and representation nuances in Unix 
 	systems because for some reason this hasn't changed since C99 even in C23. But since the program name is implementation defined in the standard so an 
 	implementation is free to do what it wants, including allowing something in there that isn't the actual name and considring this is more of a 
 	standards and ABI issue, its better to leave it alone if it works.
