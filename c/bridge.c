@@ -1,6 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
-
-#include "bridge.h"
+#define RISCV_SYSROOT "/usr/riscv64-linux-gnu"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -15,7 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define RISCV_SYSROOT "/usr/riscv64-linux-gnu"
+#include <bridge.h>
 
 static char g_qemu_path[PATH_MAX] = "qemu-riscv64";
 static char g_app_path[PATH_MAX] = "./build/app";
