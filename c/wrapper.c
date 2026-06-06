@@ -1,11 +1,10 @@
+#include <wrapper.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
-#include "wrapper.h"
-
-#define SYSROOT "/usr/riscv64-linux-gnu"
 
 static void die(const char* msg) {
     fprintf(stderr, "%s\n", msg);
@@ -119,7 +118,7 @@ static double bench_brightness(const uint8_t* input, int size, int B, int iterat
 }
 
 static double bench_blur(const uint8_t* input, int width, int height, int iterations) {
-    int size = width * height
+    int size = width * height;
 	//Even though there a narrow type conversion occurs, it seems like C is less strict in these things compared to C++ though I might need to confirm this
     uint8_t* output = xmalloc_bytes((size_t)size);
 
@@ -185,8 +184,7 @@ static int run_blur(const char* input_path, const char* output_path, int width, 
     return 0;
 }
 
-/*	
-	C++ auto handles the cli args but even though this is C11 it doesnt do that. Besides that there are numerous stupid pointer and representation nuances in Unix 
+/*	C++ auto handles the cli args but even though this is C11 it doesnt do that. Besides that there are numerous stupid pointer and representation nuances in Unix 
 	systems because for some reason this hasn't changed since C99 even in C23. But since the program name is implementation defined in the standard so an 
 	implementation is free to do what it wants, including allowing something in there that isn't the actual name and considring this is more of a 
 	standards and ABI issue, its better to leave it alone if it works.
