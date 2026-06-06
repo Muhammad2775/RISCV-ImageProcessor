@@ -204,6 +204,7 @@ Compile wrapper.c together with all assembly kernels:
 
 ```bash
 riscv64-linux-gnu-gcc \
+-O2 \
 -march=rv64imafd \
 -mabi=lp64d \
 -mno-relax \
