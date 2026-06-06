@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 4.3.2)
-project(RISCV_Project C)
+
+project(COAL_Semester_Project C)
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror -Ofast -march=rv64g -mabi=lp64")
+set(CXX_EXTENSIONS OFF)
 
-# If you are using a cross toolchain file, CLion will provide the compiler.
-# These are the sources for the RISC-V executable.
-set(SRC
+# RISC-V executable
+add_executable(app
     c/wrapper.c
     asm/invert.s
     asm/threshold.s
@@ -13,6 +15,9 @@ set(SRC
     asm/blur.s
 )
 
-add_executable(app ${SRC})
-
 target_include_directories(app PRIVATE c)
+
+# Native bridge library
+add_library(bridge SHARED c/bridge.c)
+
+target_include_directories(bridge PRIVATE c)
