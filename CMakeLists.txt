@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.3.2)
 
-project(COAL_Semester_Project C)
+project(RISCV_Project C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror -Ofast -march=rv64g -mabi=lp64")
