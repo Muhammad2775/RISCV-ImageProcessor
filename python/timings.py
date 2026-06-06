@@ -6,10 +6,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from pure_python_ref import invert as py_invert
-from pure_python_ref import threshold as py_threshold
-from pure_python_ref import brightness as py_brightness
-from pure_python_ref import blur as py_blur
+from python_implementation import invert as py_invert
+from python_implementation import threshold as py_threshold
+from python_implementation import brightness as py_brightness
+from python_implementation import blur as py_blur
 
 BASE = Path(__file__).resolve().parent
 ROOT = BASE.parent
