@@ -1,0 +1,10 @@
+# Build and Cache Directories
+build/
+.cache/
+
+# OS/IDE specifics
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
