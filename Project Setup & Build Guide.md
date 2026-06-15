@@ -1,4 +1,4 @@
-# Project Setup Guide
+# Project Setup & Build Guide
 
 ## Introduction
 
