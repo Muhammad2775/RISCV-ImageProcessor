@@ -13,23 +13,91 @@ The project was developed and tested using:
 * RISC-V GNU Toolchain
 * QEMU RISC-V Emulator
 
-Following this guide should allow the project to run correctly on a fresh system with minimal configuration.
+The repository supports multiple build workflows. The main commands in this guide are sufficient to build and run the project successfully. On native Linux systems, you may use CMake. Premake or Lua-based Make workflows can also be used if you prefer them. If you are using CMake on Windows, follow the setup steps in the next section to configure CMake, Ninja, and VS Code correctly.
 
-# System Requirements
+## Before You Begin
 
-## Operating System
+### Build-System Note
+
+* CMake is primarily intended for native Linux users in this project setup.
+* The direct compiler commands shown in this guide are enough to build and run the project.
+* If you prefer CMake, you can still use it on Windows, provided it is installed and configured correctly.
+* Premake or a Lua-based Make setup can also be used as an alternative build system.
+
+### Required VS Code Extensions
+
+For Windows, WSL, and general project work, install the following extensions in VS Code:
+
+* Microsoft **WSL**
+* Microsoft **Remote - Tunnels**
+* Microsoft **Remote Explorer**
+* Microsoft **C/C++**
+* Microsoft **Python**
+* **CMake Tools**
+
+These extensions help VS Code work correctly in both normal Windows mode and WSL mode.
+
+### Optional CMake and Ninja Setup for Windows Users
+
+If you want to use CMake on Windows and it is not already installed, configure it as follows:
+
+1. Download the latest Windows x64 CMake installer from the official download page:
+
+   [https://cmake.org/download/](https://cmake.org/download/)
+
+2. Install the Windows x64 installer. The filename will look similar to:
+
+   `cmake-4.3.3-windows-x86_64.msi`
+
+3. After installation, go to:
+
+   `C:\Program Files\CMake\bin`
+
+4. Confirm that `cmake.exe` exists in that folder.
+
+5. Copy that full path into **System Environment Variables → Path**.
+
+6. Save the changes, then open VS Code and add that same path in the CMake Tools setting, as shown in the screenshot.
+
+### Ninja Requirement
+
+This setup assumes that Ninja is available on your system.
+
+Check Ninja from Command Prompt or PowerShell:
+
+```powershell
+ninja --version
+```
+
+If Ninja is installed, a version number is shown.
+
+If Ninja is not installed, you will see an error similar to:
+
+```text
+'ninja' is not recognized as an internal or external command, operable program or batch file.
+```
+
+If Ninja is missing, download it from:
+
+[https://github.com/ninja-build/ninja/releases](https://github.com/ninja-build/ninja/releases)
+
+Download the file similar to `ninja-win.zip`, extract it, and make `ninja.exe` available on your PATH. A simple approach is to place `ninja.exe` in a folder that is already on the PATH, or add the folder containing `ninja.exe` to the PATH. Restart your PC after making the change.
+
+## System Requirements
+
+### Operating System
 
 Recommended:
 
-* Windows 11/10 (with WSL2 support)
+* Windows 11/10 with WSL2 support
 
 Alternative:
 
 * Native Ubuntu Linux
 
-# Installing WSL2
+## Installing WSL2
 
-## Enable WSL
+### Enable WSL
 
 Open PowerShell as Administrator:
 
@@ -39,7 +107,7 @@ wsl --install
 
 Restart the computer when prompted.
 
-## Verify Installation
+### Verify Installation
 
 Open PowerShell:
 
@@ -53,7 +121,7 @@ Expected output should indicate:
 Default Version: 2
 ```
 
-## Install Ubuntu
+### Install Ubuntu
 
 If Ubuntu was not installed automatically:
 
@@ -63,7 +131,7 @@ wsl --install -d Ubuntu
 
 Launch Ubuntu and create a username and password.
 
-# Updating Ubuntu
+## Updating Ubuntu
 
 Inside WSL:
 
@@ -72,7 +140,7 @@ sudo apt update
 sudo apt upgrade -y
 ```
 
-# Installing Build Tools
+## Installing Build Tools
 
 Install common development packages:
 
@@ -92,7 +160,7 @@ gcc --version
 python3 --version
 ```
 
-# Installing RISC-V Toolchain
+## Installing RISC-V Toolchain
 
 Install the RISC-V cross compiler:
 
@@ -108,7 +176,7 @@ Verify:
 riscv64-linux-gnu-gcc --version
 ```
 
-# Installing QEMU
+## Installing QEMU
 
 Install QEMU user-mode emulation:
 
@@ -124,7 +192,7 @@ Verify:
 qemu-riscv64 --version
 ```
 
-# Installing Python Dependencies
+## Installing Python Dependencies
 
 Install required Python libraries:
 
@@ -141,7 +209,7 @@ python3 -c "import numpy"
 
 No errors should be displayed.
 
-# Cloning the Repository
+## Cloning the Repository
 
 Clone the project:
 
@@ -155,7 +223,7 @@ Enter the repository:
 cd RISCV_Project
 ```
 
-# Repository Layout
+## Repository Layout
 
 ```text
 RISCV_Project/
@@ -170,15 +238,15 @@ RISCV_Project/
 └── Project Setup Guide.md
 ```
 
-# Building the Project
+## Building the Project
 
-## Create Build Directory
+### Create Build Directory
 
 ```bash
 mkdir -p build
 ```
 
-## Build Native Bridge Library
+### Build Native Bridge Library
 
 Compile the x86-64 bridge used by Python ctypes:
 
@@ -198,9 +266,9 @@ Expected output:
 build/libbridge.so
 ```
 
-## Build RISC-V Executable
+### Build RISC-V Executable
 
-Compile wrapper.c together with all assembly kernels:
+Compile `wrapper.c` together with all assembly kernels:
 
 ```bash
 riscv64-linux-gnu-gcc \
@@ -219,7 +287,7 @@ Expected output:
 build/app
 ```
 
-# Verifying the RISC-V Binary
+## Verifying the RISC-V Binary
 
 Check the executable:
 
@@ -236,7 +304,7 @@ UCB RISC-V
 
 This confirms successful RISC-V compilation.
 
-# Testing QEMU
+## Testing QEMU
 
 Run:
 
@@ -258,7 +326,7 @@ This confirms:
 * QEMU is functioning
 * The RISC-V executable launches correctly
 
-# Preparing Input Images
+## Preparing Input Images
 
 Place grayscale input images in:
 
@@ -278,7 +346,7 @@ Output images will be generated in:
 images/output/
 ```
 
-# Running Image Generation
+## Running Image Generation
 
 Execute:
 
@@ -310,7 +378,7 @@ These files will appear inside:
 images/output/
 ```
 
-# Running Benchmarks
+## Running Benchmarks
 
 Execute:
 
@@ -336,9 +404,9 @@ The benchmark compares:
 
 and reports execution times and relative speedups.
 
-# Common Build Errors
+## Common Build Errors
 
-## Missing RISC-V Compiler
+### Missing RISC-V Compiler
 
 Error:
 
@@ -352,7 +420,7 @@ Solution:
 sudo apt install gcc-riscv64-linux-gnu
 ```
 
-## Missing QEMU
+### Missing QEMU
 
 Error:
 
@@ -366,7 +434,7 @@ Solution:
 sudo apt install qemu-user
 ```
 
-## Missing Python Modules
+### Missing Python Modules
 
 Error:
 
@@ -380,7 +448,7 @@ Solution:
 pip3 install numpy opencv-python
 ```
 
-## Bridge Library Missing
+### Bridge Library Missing
 
 Error:
 
@@ -396,7 +464,7 @@ Rebuild:
 gcc -O2 -fPIC -shared c/bridge.c -o build/libbridge.so
 ```
 
-## RISC-V Application Missing
+### RISC-V Application Missing
 
 Error:
 
@@ -418,7 +486,7 @@ asm/*.s \
 -o build/app
 ```
 
-# Clean Rebuild
+## Clean Rebuild
 
 Delete previous build artifacts:
 
@@ -446,7 +514,7 @@ asm/*.s \
 -o build/app
 ```
 
-# Validation Checklist
+## Validation Checklist
 
 Before running the project verify:
 
@@ -456,12 +524,13 @@ Before running the project verify:
 * RISC-V toolchain installed
 * QEMU installed
 * Python dependencies installed
-* build/libbridge.so exists
-* build/app exists
+* `build/libbridge.so` exists
+* `build/app` exists
 * Input image exists
 * QEMU launches successfully
+* CMake and Ninja are configured only if you plan to use the CMake-based workflow
 
-# Expected Workflow
+## Expected Workflow
 
 ```text
 Clone Repository
@@ -491,6 +560,6 @@ Run timings.py
 Collect Performance Results
 ```
 
-# Conclusion
+## Conclusion
 
 Following this guide will produce a fully functional development environment capable of compiling RISC-V assembly code, executing it through QEMU emulation, generating processed images, and benchmarking Python and Assembly implementations. The setup intentionally separates host-side execution from emulated RISC-V execution, allowing the project to demonstrate cross-architecture software integration while remaining portable and reproducible.
