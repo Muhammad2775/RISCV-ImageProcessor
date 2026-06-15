@@ -21,7 +21,7 @@ The repository supports multiple build workflows. The main commands in this guid
 
 * CMake is primarily intended for native Linux users in this project setup.
 * The direct compiler commands shown in this guide are enough to build and run the project.
-* If you prefer CMake, you can still use it on Windows, provided it is installed and configured correctly.
+* If you prefer CMake to manage the relative file paths and build, you can still use it on Windows, provided it is installed and configured correctly.
 * Premake or a Lua-based Make setup can also be used as an alternative build system.
 
 ### Required VS Code Extensions
