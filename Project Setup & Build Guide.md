@@ -57,7 +57,7 @@ If you want to use CMake on Windows and it is not already installed, configure i
 
 5. Copy that full path into **System Environment Variables → Path**.
 
-6. Save the changes, then open VS Code and add that same path in the CMake Tools setting, as shown in the screenshot.
+6. Save the changes, then open VS Code and add that same path in the CMake Tools setting, by pressing ctrl+, and searching for "CMake Path".
 
 ### Ninja Requirement
 
