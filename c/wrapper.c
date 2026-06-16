@@ -1,27 +1,32 @@
-#include <wrapper.h>
-
+#include <errno.h>
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+
+#include "wrapper.h"
+
+static const char* prog = "app";
 
 static void die(const char* msg) {
     fprintf(stderr, "%s\n", msg);
     exit(1);
 }
 
-static void usage(const char* prog) {
+static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
-        "  %s invert <input.raw> <output.raw> <size>\n"
-        "  %s threshold <input.raw> <output.raw> <size> <T>\n"
-        "  %s brightness <input.raw> <output.raw> <size> <B>\n"
-        "  %s blur <input.raw> <output.raw> <width> <height>\n"
-        "  %s bench invert <input.raw> <size> <iterations>\n"
-        "  %s bench threshold <input.raw> <size> <T> <iterations>\n"
-        "  %s bench brightness <input.raw> <size> <B> <iterations>\n"
-        "  %s bench blur <input.raw> <width> <height> <iterations>\n",
+        "  %s invert <size>\n"
+        "  %s threshold <size> <T>\n"
+        "  %s brightness <size> <B>\n"
+        "  %s blur <width> <height>\n"
+        "  %s bench invert <size> <iterations>\n"
+        "  %s bench threshold <size> <T> <iterations>\n"
+        "  %s bench brightness <size> <B> <iterations>\n"
+        "  %s bench blur <width> <height> <iterations>\n",
         prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
@@ -33,44 +38,72 @@ static uint64_t now_ns(void) {
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
 
-static uint8_t* xmalloc_bytes(size_t n) {
-    uint8_t* p = (uint8_t*)malloc(n);
-    if (!p) {
-        die("Memory allocation failed.");
-    }
-    return p;
-}
-
-static uint8_t* read_raw_alloc(const char* path, size_t size) {
-    FILE* f = fopen(path, "rb");
-    if (!f) die("Failed to open input file.");
-
-    uint8_t* buf = xmalloc_bytes(size);
-
-    if (fread(buf, 1, size, f) != size) {
-        fclose(f);
-        free(buf);
-        die("Failed to read input data.");
+static int parse_pos_int(const char* s, const char* name) {
+    if (!s) {
+        fprintf(stderr, "Missing argument: %s\n", name);
+        exit(1);
     }
 
-    fclose(f);
-    return buf;
-}
+    errno = 0;
+    char* end = NULL;
+    long v = strtol(s, &end, 10);
 
-static void write_raw(const char* path, const uint8_t* data, size_t size) {
-    FILE* f = fopen(path, "wb");
-    if (!f) die("Failed to open output file.");
-
-    if (fwrite(data, 1, size, f) != size) {
-        fclose(f);
-        die("Failed to write output data.");
+    if (errno != 0 || end == s || *end != '\0' || v <= 0 || v > INT_MAX) {
+        fprintf(stderr, "Invalid %s: %s\n", name, s);
+        exit(1);
     }
 
-    fclose(f);
+    return (int)v;
 }
 
-static double bench_invert(const uint8_t* input, int size, int iterations) {
-    uint8_t* output = xmalloc_bytes((size_t)size);
+static int parse_int_any(const char* s, const char* name) {
+    if (!s) {
+        fprintf(stderr, "Missing argument: %s\n", name);
+        exit(1);
+    }
+
+    errno = 0;
+    char* end = NULL;
+    long v = strtol(s, &end, 10);
+
+    if (errno != 0 || end == s || *end != '\0' || v < INT_MIN || v > INT_MAX) {
+        fprintf(stderr, "Invalid %s: %s\n", name, s);
+        exit(1);
+    }
+
+    return (int)v;
+}
+
+static void read_exact_stdin(uint8_t* buf, size_t len) {
+    size_t off = 0;
+    while (off < len) {
+        ssize_t n = read(STDIN_FILENO, buf + off, len - off);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            die("Failed to read input bytes from stdin.");
+        }
+        if (n == 0) {
+            die("Unexpected EOF on stdin.");
+        }
+        off += (size_t)n;
+    }
+}
+
+static void write_exact_stdout(const uint8_t* buf, size_t len) {
+    size_t off = 0;
+    while (off < len) {
+        ssize_t n = write(STDOUT_FILENO, buf + off, len - off);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            die("Failed to write output bytes to stdout.");
+        }
+        off += (size_t)n;
+    }
+}
+
+static double bench_invert_kernel(const uint8_t* input, int size, int iterations) {
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!output) die("Memory allocation failed.");
 
     uint64_t start = now_ns();
     for (int i = 0; i < iterations; ++i) {
@@ -85,8 +118,9 @@ static double bench_invert(const uint8_t* input, int size, int iterations) {
     return (double)(end - start) / (double)iterations;
 }
 
-static double bench_threshold(const uint8_t* input, int size, uint8_t T, int iterations) {
-    uint8_t* output = xmalloc_bytes((size_t)size);
+static double bench_threshold_kernel(const uint8_t* input, int size, uint8_t T, int iterations) {
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!output) die("Memory allocation failed.");
 
     uint64_t start = now_ns();
     for (int i = 0; i < iterations; ++i) {
@@ -101,8 +135,9 @@ static double bench_threshold(const uint8_t* input, int size, uint8_t T, int ite
     return (double)(end - start) / (double)iterations;
 }
 
-static double bench_brightness(const uint8_t* input, int size, int B, int iterations) {
-    uint8_t* output = xmalloc_bytes((size_t)size);
+static double bench_brightness_kernel(const uint8_t* input, int size, int B, int iterations) {
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!output) die("Memory allocation failed.");
 
     uint64_t start = now_ns();
     for (int i = 0; i < iterations; ++i) {
@@ -117,10 +152,10 @@ static double bench_brightness(const uint8_t* input, int size, int B, int iterat
     return (double)(end - start) / (double)iterations;
 }
 
-static double bench_blur(const uint8_t* input, int width, int height, int iterations) {
+static double bench_blur_kernel(const uint8_t* input, int width, int height, int iterations) {
     int size = width * height;
-	//Even though there a narrow type conversion occurs, it seems like C is less strict in these things compared to C++ though I might need to confirm this
-    uint8_t* output = xmalloc_bytes((size_t)size);
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!output) die("Memory allocation failed.");
 
     uint64_t start = now_ns();
     for (int i = 0; i < iterations; ++i) {
@@ -135,160 +170,206 @@ static double bench_blur(const uint8_t* input, int width, int height, int iterat
     return (double)(end - start) / (double)iterations;
 }
 
-static int run_invert(const char* input_path, const char* output_path, int size) {
-    uint8_t* input = read_raw_alloc(input_path, (size_t)size);
-    uint8_t* output = xmalloc_bytes((size_t)size);
+static int run_invert(const char* const* args, int argc) {
+    if (argc != 1) { usage(); return 1; }
 
+    int size = parse_pos_int(args[0], "size");
+    uint8_t* input = (uint8_t*)malloc((size_t)size);
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!input || !output) die("Memory allocation failed.");
+
+    read_exact_stdin(input, (size_t)size);
     invert(input, output, size);
-    write_raw(output_path, output, (size_t)size);
+    write_exact_stdout(output, (size_t)size);
 
     free(input);
     free(output);
     return 0;
 }
 
-static int run_threshold(const char* input_path, const char* output_path, int size, uint8_t T) {
-    uint8_t* input = read_raw_alloc(input_path, (size_t)size);
-    uint8_t* output = xmalloc_bytes((size_t)size);
+static int run_threshold(const char* const* args, int argc) {
+    if (argc != 2) { usage(); return 1; }
 
-    threshold(input, output, size, T);
-    write_raw(output_path, output, (size_t)size);
+    int size = parse_pos_int(args[0], "size");
+    int T = parse_int_any(args[1], "T");
+
+    uint8_t* input = (uint8_t*)malloc((size_t)size);
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!input || !output) die("Memory allocation failed.");
+
+    read_exact_stdin(input, (size_t)size);
+    threshold(input, output, size, (uint8_t)T);
+    write_exact_stdout(output, (size_t)size);
 
     free(input);
     free(output);
     return 0;
 }
 
-static int run_brightness(const char* input_path, const char* output_path, int size, int B) {
-    uint8_t* input = read_raw_alloc(input_path, (size_t)size);
-    uint8_t* output = xmalloc_bytes((size_t)size);
+static int run_brightness(const char* const* args, int argc) {
+    if (argc != 2) { usage(); return 1; }
 
+    int size = parse_pos_int(args[0], "size");
+    int B = parse_int_any(args[1], "B");
+
+    uint8_t* input = (uint8_t*)malloc((size_t)size);
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!input || !output) die("Memory allocation failed.");
+
+    read_exact_stdin(input, (size_t)size);
     brightness(input, output, size, B);
-    write_raw(output_path, output, (size_t)size);
+    write_exact_stdout(output, (size_t)size);
 
     free(input);
     free(output);
     return 0;
 }
 
-static int run_blur(const char* input_path, const char* output_path, int width, int height) {
+static int run_blur(const char* const* args, int argc) {
+    if (argc != 2) { usage(); return 1; }
+
+    int width = parse_pos_int(args[0], "width");
+    int height = parse_pos_int(args[1], "height");
     int size = width * height;
-    uint8_t* input = read_raw_alloc(input_path, (size_t)size);
-    uint8_t* output = xmalloc_bytes((size_t)size);
 
+    uint8_t* input = (uint8_t*)malloc((size_t)size);
+    uint8_t* output = (uint8_t*)malloc((size_t)size);
+    if (!input || !output) die("Memory allocation failed.");
+
+    read_exact_stdin(input, (size_t)size);
     blur(input, output, width, height);
-    write_raw(output_path, output, (size_t)size);
+    write_exact_stdout(output, (size_t)size);
 
     free(input);
     free(output);
     return 0;
 }
 
-/*	C++ auto handles the cli args but even though this is C11 it doesnt do that. Besides that there are numerous stupid pointer and representation nuances in Unix 
-	systems because for some reason this hasn't changed since C99 even in C23. But since the program name is implementation defined in the standard so an 
-	implementation is free to do what it wants, including allowing something in there that isn't the actual name and considring this is more of a 
-	standards and ABI issue, its better to leave it alone if it works.
-	
-	Note: "However, implementation-defined does have a specific meaning in the ISO standards as the implementation must document how it works. So even UNIX, which 
-	can put anything it likes into argv[0] with the exec family of calls, has to (and does) document it, since argv[0] can hold such diverse things such as the full 
-	path of the program ('/progpath/prog'), just the filename ('prog'), a slightly modified name ('-prog'), a descriptive name ('prog - a program for progging') 
-	and nothing (''). The implementation has to define what it holds but that's all the standard requires. However, these have never been issues in Windows."
-	
-	READ: "https://stackoverflow.com/questions/2050961/is-argv0-name-of-executable-an-accepted-standard-or-just-a-common-conventi/2051031#2051031"
-*/
+static int bench_invert(const char* const* args, int argc) {
+    if (argc != 2) { usage(); return 1; }
 
-int main(int argc, char** argv)
-{
+    int size = parse_pos_int(args[0], "size");
+    int iterations = parse_pos_int(args[1], "iterations");
+    uint8_t* input = (uint8_t*)malloc((size_t)size);
+    if (!input) die("Memory allocation failed.");
+
+    read_exact_stdin(input, (size_t)size);
+    double avg_ns = bench_invert_kernel(input, size, iterations);
+    printf("avg_ns=%.2f\n", avg_ns);
+    fflush(stdout);
+
+    free(input);
+    return 0;
+}
+
+static int bench_threshold(const char* const* args, int argc) {
+    if (argc != 3) { usage(); return 1; }
+
+    int size = parse_pos_int(args[0], "size");
+    int T = parse_int_any(args[1], "T");
+    int iterations = parse_pos_int(args[2], "iterations");
+
+    uint8_t* input = (uint8_t*)malloc((size_t)size);
+    if (!input) die("Memory allocation failed.");
+
+    read_exact_stdin(input, (size_t)size);
+    double avg_ns = bench_threshold_kernel(input, size, (uint8_t)T, iterations);
+    printf("avg_ns=%.2f\n", avg_ns);
+    fflush(stdout);
+
+    free(input);
+    return 0;
+}
+
+static int bench_brightness(const char* const* args, int argc) {
+    if (argc != 3) { usage(); return 1; }
+
+    int size = parse_pos_int(args[0], "size");
+    int B = parse_int_any(args[1], "B");
+    int iterations = parse_pos_int(args[2], "iterations");
+
+    uint8_t* input = (uint8_t*)malloc((size_t)size);
+    if (!input) die("Memory allocation failed.");
+
+    read_exact_stdin(input, (size_t)size);
+    double avg_ns = bench_brightness_kernel(input, size, B, iterations);
+    printf("avg_ns=%.2f\n", avg_ns);
+    fflush(stdout);
+
+    free(input);
+    return 0;
+}
+
+static int bench_blur(const char* const* args, int argc) {
+    if (argc != 3) { usage(); return 1; }
+
+    int width = parse_pos_int(args[0], "width");
+    int height = parse_pos_int(args[1], "height");
+    int iterations = parse_pos_int(args[2], "iterations");
+
+    size_t size = (size_t)width * (size_t)height;
+    uint8_t* input = (uint8_t*)malloc(size);
+    if (!input) die("Memory allocation failed.");
+
+    read_exact_stdin(input, size);
+    double avg_ns = bench_blur_kernel(input, width, height, iterations);
+    printf("avg_ns=%.2f\n", avg_ns);
+    fflush(stdout);
+
+    free(input);
+    return 0;
+}
+
+typedef struct {
+    const char* name;
+    int (*run)(const char* const* args, int argc);
+    int (*bench)(const char* const* args, int argc);
+} Command;
+
+static const Command COMMANDS[] = {
+    {"invert", run_invert, bench_invert},
+    {"threshold", run_threshold, bench_threshold},
+    {"brightness", run_brightness, bench_brightness},
+    {"blur", run_blur, bench_blur},
+};
+
+static const Command* find_command(const char* name) {
+    for (size_t i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); ++i) {
+        if (strcmp(COMMANDS[i].name, name) == 0) {
+            return &COMMANDS[i];
+        }
+    }
+    return NULL;
+}
+
+int main(int argc, char** argv) {
     if (argc < 2) {
-        usage(argv[0]);
+        usage();
         return 1;
     }
 
+    prog = argv[0];
+
     if (strcmp(argv[1], "bench") == 0) {
-        if (argc < 6) {
-            usage(argv[0]);
+        if (argc < 4) {
+            usage();
             return 1;
         }
 
-        const char* op = argv[2];
-        const char* input_path = argv[3];
-
-        if (strcmp(op, "invert") == 0) {
-            if (argc != 6) { usage(argv[0]); return 1; }
-            int size = atoi(argv[4]);
-            int iterations = atoi(argv[5]);
-            if (size <= 0 || iterations <= 0) die("Invalid size/iterations.");
-            uint8_t* input = read_raw_alloc(input_path, (size_t)size);
-            double avg_ns = bench_invert(input, size, iterations);
-            printf("avg_ns=%.2f\n", avg_ns);
-            free(input);
-            return 0;
+        const Command* cmd = find_command(argv[2]);
+        if (!cmd) {
+            usage();
+            return 1;
         }
 
-        if (strcmp(op, "threshold") == 0) {
-            if (argc != 7) { usage(argv[0]); return 1; }
-            int size = atoi(argv[4]);
-            uint8_t T = (uint8_t)atoi(argv[5]);
-            int iterations = atoi(argv[6]);
-            if (size <= 0 || iterations <= 0) die("Invalid size/iterations.");
-            uint8_t* input = read_raw_alloc(input_path, (size_t)size);
-            double avg_ns = bench_threshold(input, size, T, iterations);
-            printf("avg_ns=%.2f\n", avg_ns);
-            free(input);
-            return 0;
-        }
+        return cmd->bench((const char* const*)&argv[3], argc - 3);
+    }
 
-        if (strcmp(op, "brightness") == 0) {
-            if (argc != 7) { usage(argv[0]); return 1; }
-            int size = atoi(argv[4]);
-            int B = atoi(argv[5]);
-            int iterations = atoi(argv[6]);
-            if (size <= 0 || iterations <= 0) die("Invalid size/iterations.");
-            uint8_t* input = read_raw_alloc(input_path, (size_t)size);
-            double avg_ns = bench_brightness(input, size, B, iterations);
-            printf("avg_ns=%.2f\n", avg_ns);
-            free(input);
-            return 0;
-        }
-
-        if (strcmp(op, "blur") == 0) {
-            if (argc != 7) { usage(argv[0]); return 1; }
-            int width = atoi(argv[4]);
-            int height = atoi(argv[5]);
-            int iterations = atoi(argv[6]);
-            if (width <= 0 || height <= 0 || iterations <= 0) die("Invalid width/height/iterations.");
-            uint8_t* input = read_raw_alloc(input_path, (size_t)(width * height));
-            double avg_ns = bench_blur(input, width, height, iterations);
-            printf("avg_ns=%.2f\n", avg_ns);
-            free(input);
-            return 0;
-        }
-
-        usage(argv[0]);
+    const Command* cmd = find_command(argv[1]);
+    if (!cmd) {
+        usage();
         return 1;
     }
 
-    const char* op = argv[1];
-    if (strcmp(op, "invert") == 0) {
-        if (argc != 5) { usage(argv[0]); return 1; }
-        return run_invert(argv[2], argv[3], atoi(argv[4]));
-    }
-
-    if (strcmp(op, "threshold") == 0) {
-        if (argc != 6) { usage(argv[0]); return 1; }
-        return run_threshold(argv[2], argv[3], atoi(argv[4]), (uint8_t)atoi(argv[5]));
-    }
-
-    if (strcmp(op, "brightness") == 0) {
-        if (argc != 6) { usage(argv[0]); return 1; }
-        return run_brightness(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]));
-    }
-
-    if (strcmp(op, "blur") == 0) {
-        if (argc != 6) { usage(argv[0]); return 1; }
-        return run_blur(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]));
-    }
-
-    usage(argv[0]);
-    return 1;
+    return cmd->run((const char* const*)&argv[2], argc - 2);
 }
