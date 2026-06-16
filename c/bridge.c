@@ -39,7 +39,8 @@ void bridge_set_app_path(const char *path) {if (path && *path) snprintf(app_path
 static int write_all(int fd, const uint8_t *buf, size_t len) 
 {
     size_t off = 0;
-    while (off < len) {
+    while (off < len) 
+    {
         ssize_t n = write(fd, buf + off, len - off);
         if (n < 0) {
             if (errno == EINTR) continue;
