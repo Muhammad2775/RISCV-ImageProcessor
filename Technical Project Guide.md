@@ -1,332 +1,388 @@
 # Technical Project Guide
 
-## RISC-V Assembly Image Processing using Python, C, QEMU, and WSL2
+# RISC-V Assembly Image Processing using Python, C, ctypes, QEMU, and WSL2
 
-This document explains how the project works internally, from image loading in Python to assembly execution under QEMU and back to image reconstruction.
+## 1. Introduction
+This document provides a complete technical explanation of the internal design, architecture, execution flow, and performance model of the RISC-V Assembly Image Processing project.
 
-## 1. System Goal
+The project demonstrates how high-level software written in Python can interact with low-level RISC-V assembly routines through a native C interoperability layer. Because the host machine executes an x86-64 operating system while the image processing algorithms are compiled for the RISC-V instruction set architecture (ISA), the system uses QEMU user-mode emulation to execute RISC-V binaries transparently on the host environment.
 
-The project processes grayscale images using four hand-written RISC-V assembly kernels:
+The project combines multiple software layers:
 
-- invert
-- threshold
-- brightness
-- blur
+* Python for application orchestration, image handling, validation, and benchmarking.
+* C for native interoperability, process management, and stream-oriented inter-process communication (IPC).
+* RISC-V C wrapper code for execution control and assembly integration.
+* RISC-V Assembly for the actual pixel-level image processing algorithms.
+* QEMU for cross-architecture execution between the x86-64 host and the RISC-V application.
 
-The codebase is split into three major layers:
+The objective is not only to implement image filters but also to demonstrate important systems programming concepts such as:
 
-- Python for orchestration and benchmarking
-- C for bridging and RISC-V process control
-- RISC-V Assembly for pixel-level processing
+* Foreign Function Interfaces (FFI).
+* Cross-language communication.
+* Cross-architecture execution.
+* Process creation and control.
+* Stream-based IPC using UNIX pipes.
+* Low-level memory management.
+* Assembly integration with C.
+* Performance measurement and benchmarking.
 
-## 2. Core Architectural Idea
+# 2. System Goal
+The purpose of the project is to process grayscale images using hand-written RISC-V assembly kernels.
 
-The project does not attempt to load RISC-V code directly into the Python process.
-Instead, Python calls a native bridge library through `ctypes`. That bridge launches a RISC-V executable through `qemu-riscv64`.
+The implemented image processing operations are:
 
-This gives the system the following runtime chain:
+* Image inversion.
+* Binary thresholding.
+* Brightness adjustment with saturation.
+* 3×3 box blur filtering.
+
+Each operation is implemented directly in RISC-V assembly and follows the RISC-V calling convention so that it can be invoked from C.
+
+The architecture intentionally separates the responsibilities of different languages:
+
+* Python provides usability, automation, and benchmarking.
+* C provides a controlled bridge between Python and the RISC-V execution environment.
+* Assembly provides direct low-level manipulation of image data.
+
+This layered approach makes the system modular, easier to test, and easier to extend.
+
+# 3. Overall System Architecture
+The application is built around a stream-oriented inter-process communication architecture.
+
+The complete execution chain is the folowing:
 
 ```text
-Python → ctypes → bridge.c → QEMU → RISC-V wrapper → assembly kernels → output.raw → Python
+Python Application
+        |
+        v
+ctypes Foreign Function Interface
+        |
+        v
+Native C Bridge (libbridge.so)
+        |
+        v
+UNIX stdin/stdout Pipes
+        |
+        v
+QEMU RISC-V Emulator
+        |
+        v
+RISC-V Executable (wrapper.c)
+        |
+        v
+RISC-V Assembly Kernels
+        |
+        v
+Processed Byte Stream
+        |
+        v
+Python Image Reconstruction
 ```
 
-This design was chosen because the host Python runtime is x86-64, while the processing executable is RISC-V.
+The Python process and the RISC-V executable never directly share memory.
 
-## 3. File Responsibilities
+Instead, image buffers are transferred as streams of raw bytes through operating-system pipes.
 
-### `python/main.py`
+This design provides clear isolation between the host environment and the emulated RISC-V environment while avoiding the overhead and complexity of temporary intermediate files.
 
-This script handles the full image processing pipeline.
+# 4. Why ctypes Is Required
+Python cannot directly execute RISC-V assembly functions because:
 
-It:
+* Python executes as an x86-64 process.
+* RISC-V instructions are incompatible with the host CPU architecture.
+* The RISC-V code exists as a separate executable rather than a native Python module.
 
-- loads the input grayscale image using OpenCV
-- converts the image into a flat `uint8` buffer
-- calls the native bridge library through `ctypes`
-- saves the processed buffers as PNG images
-- prints correctness and timing information
+To solve this problem, Python uses the ctypes Foreign Function Interface (FFI) to communicate with a native x86-64 shared library.
 
-It is the script you run when you want to generate the output images.
+The bridge library exposes a C API that Python can call directly.
 
-### `python/timings.py`
+Examples of exposed functions include:
 
-This script compares performance.
+* bridge_invert()
+* bridge_threshold()
+* bridge_brightness()
+* bridge_blur()
+
+and their corresponding benchmark variants.
+
+The bridge hides all details related to:
+
+* Creating child processes.
+* Starting QEMU.
+* Passing command-line arguments.
+* Transferring image data.
+* Receiving results.
+* Handling execution errors.
+
+From the perspective of Python, a RISC-V assembly operation appears like a normal function call.
+
+# 5. Python Layer
+The Python layer consists of three primary files.
+
+## 5.1 main.py
+main.py is responsible for correctness testing and full pipeline execution.
+
+Its responsibilities include:
+
+* Loading input grayscale images using OpenCV.
+* Storing image data as NumPy uint8 arrays.
+* Preparing contiguous memory buffers suitable for ctypes.
+* Calling the C bridge functions.
+* Receiving processed image buffers.
+* Comparing assembly output against Python reference implementations.
+* Measuring complete execution time.
+* Saving generated output images.
+
+The timing measured in main.py represents the complete user-visible runtime.
+
+It includes:
+
+* Python execution overhead.
+* ctypes function calls.
+* C bridge execution.
+* Pipe communication.
+* QEMU startup.
+* RISC-V program execution.
+* Assembly kernel execution.
+* Data transfer back to Python.
+* Image reconstruction and file output.
+
+## 5.2 timings.py
+timings.py is responsible for detailed performance comparison.
+
+Unlike main.py, which measures the entire execution pipeline, timings.py focuses on comparing algorithm execution performance.
 
 It measures:
 
-- pure Python reference implementations
-- assembly-backed execution through the bridge
+### Python performance
+The reference Python implementations are executed repeatedly.
 
-It prints average milliseconds per operation and a speedup ratio.
+Average milliseconds per operation are calculated.
 
-### `python/pure_python_ref.py`
+### RISC-V assembly performance
+The benchmark functions exposed by the bridge are called.
 
-This file contains the reference Python implementations used for comparison.
+The RISC-V wrapper repeatedly executes the assembly kernels internally and calculates the average kernel execution time in nanoseconds.
 
-It is not part of the RISC-V runtime path.
-It exists to provide a baseline for performance comparison.
+This approach minimizes external overhead and provides a more meaningful comparison of algorithm performance.
 
-### `c/bridge.c`
+The results include:
 
-This is the native host-side shared library used by Python.
+* Python average execution time.
+* Assembly average execution time.
+* Relative speedup or slowdown.
 
-It performs the following tasks:
+## 5.3 python_implementation.py
+This file contains reference implementations of every image processing algorithm using standard Python loops.
 
-- receives requests from Python through `ctypes`
-- writes input image data to temporary raw files
-- launches `qemu-riscv64`
-- invokes the RISC-V executable in either normal or benchmark mode
-- captures output
-- returns processed results and benchmark values back to Python
+It includes:
 
-This file contains no image processing algorithms.
-It is a control and transport layer.
+* invert()
+* threshold()
+* brightness()
+* blur()
 
-### `c/bridge.h`
+These implementations serve two purposes:
 
-This header declares the functions exported by the bridge shared library.
+1. Correctness validation by comparing their output against the assembly implementation.
+2. A baseline for performance comparisons.
 
-It is used by `bridge.c` and documents the API exposed to Python.
+They are intentionally implemented using explicit loops instead of relying on highly optimized NumPy vectorized operations.
 
-### `c/wrapper.c`
+This allows the comparison to focus on algorithm implementation rather than optimized library routines.
 
-This is the RISC-V executable entry point.
+# 6. C Bridge Layer (bridge.c)
+bridge.c is a native x86-64 shared library loaded by Python.
 
-It handles:
+It acts as the communication boundary between the host Python process and the RISC-V execution environment.
 
-- command-line argument parsing
-- raw file reading and writing
-- memory allocation
-- calling the assembly kernels
-- benchmark mode execution
+Its responsibilities include:
 
-The actual image processing logic is not implemented in C.
-The C code only orchestrates execution of the assembly functions.
+* Receiving requests from Python.
+* Creating UNIX pipes for input and output streams.
+* Launching child processes using fork().
+* Executing QEMU using execvp().
+* Passing the RISC-V executable path and arguments.
+* Streaming raw image bytes into the child process through stdin.
+* Receiving processed image bytes or benchmark output through stdout.
+* Capturing and reporting execution failures.
+* Returning results back to Python.
 
-### `c/wrapper.h`
+The bridge does not perform any image processing.
 
-This header declares the assembly-backed image processing functions so the wrapper can call them using C calling conventions.
+It exists purely for:
 
-The functions declared here are implemented in the `.s` files.
+* Process management.
+* Data transportation.
+* Error propagation.
+* Cross-architecture communication.
 
-### `asm/invert.s`
+# 7. RISC-V Wrapper Layer (wrapper.c)
+wrapper.c is the entry point of the RISC-V executable.
 
+It provides the runtime environment that allows assembly kernels to operate as part of a complete application.
+
+Its responsibilities include:
+
+* Parsing command-line arguments.
+* Determining which image operation was requested.
+* Reading raw image streams from standard input.
+* Allocating input and output buffers.
+* Calling the corresponding assembly function.
+* Writing processed data to standard output.
+* Running benchmark loops when benchmark mode is requested.
+* Measuring execution time using a monotonic system clock.
+* Reporting average execution time to the bridge.
+
+The wrapper contains no image processing logic.
+
+It only manages execution flow and provides a C interface for assembly routines.
+
+# 8. RISC-V Assembly Layer
+The assembly files contain the actual image processing algorithms.
+
+## invert.s
 Performs pixel inversion:
 
-```text
-output = 255 - pixel
+```
+output = 255 - input
 ```
 
-### `asm/threshold.s`
+---
 
+## threshold.s
 Performs binary thresholding:
 
-```text
-pixel >= T ? 255 : 0
+```
+if pixel >= threshold:
+    output = 255
+else:
+    output = 0
 ```
 
-### `asm/brightness.s`
+## brightness.s
+Adjusts pixel brightness by adding an offset.
 
-Performs brightness adjustment with clamping:
+The result is clamped to the valid grayscale range:
 
-```text
-pixel = pixel + B
+```
+0 <= pixel <= 255
 ```
 
-with output constrained to the valid `0..255` range.
+This prevents integer overflow or underflow.
 
-### `asm/blur.s`
+## blur.s
+Implements a 3×3 box blur filter.
 
-Performs a 3×3 box blur over grayscale image data.
+Each pixel is replaced by the average of its surrounding 3×3 neighborhood.
 
-Border pixels are handled separately so the kernel does not read out of bounds.
+Boundary pixels are handled separately to prevent reading memory outside the image buffer.
 
-## 4. Data Flow in Detail
+# 9. Detailed Runtime Flow
+## Image Generation Mode
 
-### Full Image Generation Flow
+When main.py executes:
 
-When `python/main.py` is executed:
+1. Python loads a grayscale image using OpenCV.
+2. The image is represented as a NumPy uint8 buffer.
+3. Python passes buffer addresses to the bridge using ctypes.
+4. The bridge creates pipes and launches QEMU.
+5. QEMU starts the RISC-V executable.
+6. The bridge streams image bytes through stdin.
+7. The wrapper receives the input stream.
+8. The wrapper allocates output memory.
+9. The requested assembly function is called.
+10. The assembly kernel modifies the image data.
+11. The wrapper writes the processed bytes to stdout.
+12. The bridge receives the output stream.
+13. Python reconstructs the output image.
+14. OpenCV saves the final image.
 
-```text
-1. Python loads sample_01.png
-2. OpenCV converts it into a grayscale NumPy array
-3. NumPy flattens the image into raw bytes
-4. Python sends the buffer to bridge.c through ctypes
-5. bridge.c writes the buffer to input.raw
-6. bridge.c invokes qemu-riscv64
-7. QEMU starts the RISC-V executable built from wrapper.c + asm/*.s
-8. wrapper.c parses the command line and loads the raw data
-9. wrapper.c calls the requested assembly kernel
-10. The assembly kernel processes the pixels
-11. wrapper.c writes the processed buffer to output.raw
-12. QEMU exits
-13. bridge.c reads output.raw
-14. Python reshapes the buffer back into image form
-15. OpenCV writes the final PNG to images/output/
-```
+# 10. Benchmark Runtime Flow
+When timings.py executes:
 
-## 5. Benchmark Flow
+1. Python executes the reference implementation multiple times.
+2. Average Python execution time is calculated.
+3. Python calls the bridge benchmark API.
+4. The bridge launches the RISC-V executable through QEMU.
+5. The wrapper enters benchmark mode.
+6. The assembly kernel is executed repeatedly.
+7. The wrapper calculates the average runtime in nanoseconds.
+8. The timing value is returned through stdout.
+9. The bridge parses the benchmark output.
+10. Python displays the final comparison table.
 
-### Python Benchmark
+# 11. Build Artifacts
+The project produces two important binaries.
 
-`python/timings.py` first runs the pure Python reference function directly.
-That measures the baseline cost of the Python-level algorithm.
+## libbridge.so
+The native x86-64 shared library loaded by Python.
 
-### Assembly Benchmark
+Purpose:
 
-Then `timings.py` calls a benchmark function exposed by `bridge.c`.
-That function:
+* Provides the ctypes interface.
+* Handles IPC.
+* Controls QEMU execution.
 
-- writes the input buffer to a temporary raw file
-- invokes QEMU
-- runs the RISC-V wrapper in benchmark mode
-- repeats the kernel many times
-- computes an average kernel runtime
-- prints `avg_ns=...`
+## app
+The RISC-V executable containing:
 
-The bridge captures that printed result and returns it to Python.
+* wrapper.c
+* RISC-V assembly kernels
 
-## 6. Two Different Timing Models
+This executable runs inside QEMU.
 
-### End-to-End Timing (`main.py`)
+# 12. Why Stream-Based IPC Was Chosen
+Earlier approaches may use temporary files to transfer image buffers between processes.
 
-This includes:
+This project uses UNIX pipes instead because they provide several advantages:
 
-- Python image load
-- temporary raw file creation
-- QEMU startup
-- RISC-V program startup
-- raw file reading/writing
-- the assembly kernel itself
-- output reconstruction
+* No temporary files need to be created.
+* No disk I/O is required.
+* Data flows directly between processes.
+* Memory usage is simpler to control.
+* The communication model more closely matches real operating-system process interaction.
 
-This is the total user-facing runtime.
+The result is a cleaner and more efficient architecture.
 
-### Kernel Timing (`timings.py`)
+# 13. Limitations and Scope
+The project focuses specifically on grayscale offline image processing.
 
-This focuses on the execution of the assembly kernel inside the RISC-V wrapper benchmark mode.
+It does not currently include:
 
-It is the cleaner number if the goal is to compare algorithm execution rather than full process overhead.
+* RGB or multi-channel image processing.
+* Real-time video processing.
+* GPU acceleration.
+* Parallel execution.
+* Hardware RISC-V execution.
 
-## 7. Why ctypes Is Used
+The purpose of the project is to study software architecture, assembly programming, and performance characteristics under emulation.
 
-`ctypes` is used so Python can call a native shared library on the host side.
+# 14. Key Concepts Demonstrated
+This project demonstrates practical experience with:
 
-Python itself remains an x86-64 process.
-The bridge library is also x86-64.
-The bridge then launches the RISC-V executable through QEMU.
+* RISC-V assembly programming.
+* The RISC-V calling convention.
+* C and assembly interoperability.
+* Python-to-C interoperability using ctypes.
+* Cross-architecture execution using QEMU.
+* Process management using fork and exec.
+* Stream-oriented inter-process communication.
+* Dynamic memory management.
+* Image buffer manipulation.
+* Benchmark design and performance analysis.
 
-This is the only practical way to combine:
+# 15. Final Summary
+The project follows a layered architecture where each technology has a dedicated responsibility.
 
-- host Python execution
-- RISC-V assembly kernels
-- QEMU emulation
-- benchmarking from Python
+Python provides high-level orchestration and user interaction.
 
-without requiring Python itself to run as a RISC-V process.
+The native C bridge provides a clean interface between Python and the emulated environment while managing process creation and stream-based communication.
 
-## 8. Why There Is a RISC-V Wrapper at All
+QEMU provides the execution environment for the RISC-V binary.
 
-The RISC-V wrapper exists because assembly routines need a C-compatible entry point.
+The RISC-V wrapper controls program execution, memory management, and benchmark operations.
 
-It provides:
+Finally, the assembly kernels perform the actual pixel-level image transformations.
 
-- argument parsing
-- file handling
-- memory allocation
-- assembly function invocation
-- benchmark mode
-
-Without the wrapper, the assembly files would not be runnable as a standalone program.
-
-## 9. Why the C Files Do Not Implement Image Processing
-
-Neither `bridge.c` nor `wrapper.c` contains the image processing algorithms.
-
-They only manage:
-
-- data movement
-- process control
-- timing capture
-- file I/O
-- function dispatch
-
-The actual arithmetic and pixel manipulation live in the assembly kernels.
-
-## 10. Build Outputs
-
-Two build artifacts are expected:
-
-- `build/libbridge.so` — the native bridge library loaded by Python
-- `build/app` — the RISC-V executable run under QEMU
-
-Typical build commands:
-
-```bash
-gcc -O2 -fPIC -shared -Wall -Wextra c/bridge.c -o build/libbridge.so
-riscv64-linux-gnu-gcc -march=rv64imafd -mabi=lp64d -mno-relax c/wrapper.c asm/*.s -o build/app
-```
-
-## 11. Execution Summary
-
-### Image generation mode
-
-```text
-python/main.py
-→ ctypes
-→ bridge.c
-→ QEMU
-→ wrapper.c
-→ assembly
-→ output PNG
-```
-
-### Benchmark mode
-
-```text
-python/timings.py
-→ ctypes
-→ bridge.c
-→ QEMU
-→ wrapper.c benchmark mode
-→ assembly repeated many times
-→ avg_ns returned to Python
-```
-
-## 12. Practical Meaning of the Results
-
-The benchmark results should be interpreted carefully:
-
-- For simple operations like invert, threshold, and brightness, NumPy may outperform emulated RISC-V because NumPy uses highly optimized native code.
-- For more loop-heavy workloads like blur, the hand-written assembly may outperform the pure Python implementation by a wide margin.
-
-This does not mean assembly is always faster in general.
-It means the performance depends on:
-
-- how optimized the reference implementation is
-- how expensive the algorithm is
-- how much overhead QEMU and process launching add
-
-## 13. What the Project Demonstrates
-
-This project demonstrates:
-
-- low-level image processing in assembly
-- C calling conventions
-- RISC-V executable construction
-- cross-architecture execution with QEMU
-- Python-to-native interoperability through ctypes
-- benchmark design and interpretation
-- the difference between kernel time and end-to-end runtime
-
-## 14. Summary
-
-The project is built around a layered architecture:
-
-- Python orchestrates
-- bridge.c connects Python to the RISC-V side
-- QEMU executes the RISC-V binary
-- wrapper.c coordinates execution on the RISC-V side
-- assembly performs the actual pixel transformations
-
-This keeps the system modular, testable, and easy to benchmark while preserving the low-level assembly focus required by the course.
+This separation of responsibilities creates a modular, maintainable, and educational systems programming project that demonstrates how high-level and low-level software components can be integrated into a complete cross-architecture application.
